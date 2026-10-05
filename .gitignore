@@ -14,3 +14,6 @@ venv/
 configs/telegraf.conf
 configs/grafana/datasources/
 configs/grafana/dashboards/provider.yml
+
+# live running-config snapshots created by tools/reach.py --pull
+running/
