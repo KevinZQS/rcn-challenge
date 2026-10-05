@@ -1,0 +1,205 @@
+hostname {{ hostname }}
+!
+username admin privilege 15 role network-admin secret 0 admin
+!
+vrf instance MGMT
+!
+{% if role != 'access_switch' %}
+ip routing
+!
+ipv6 unicast-routing
+!
+{% endif %}
+{% for pl in prefix_lists | default([]) %}
+ip prefix-list {{ pl.name }} seq {{ pl.seq }} {{ pl.action }} {{ pl.prefix }}
+{% endfor %}
+{% if prefix_lists is defined %}!
+{% endif %}
+{% for rm in route_maps | default([]) %}
+route-map {{ rm.name }} {{ rm.action }} {{ rm.seq }}
+{% if rm.match is defined %}   match {{ rm.match }}
+{% endif %}
+{% if rm.set is defined %}   set {{ rm.set }}
+{% endif %}
+{% endfor %}
+{% if route_maps is defined %}!
+{% endif %}
+interface Management0
+   description OOB_MGMT
+   vrf MGMT
+   ip address dhcp
+!
+management api http-commands
+   no shutdown
+   protocol https
+   vrf MGMT
+      no shutdown
+!
+snmp-server community {{ mgmt.community }} ro
+snmp-server vrf MGMT
+snmp-server host {{ mgmt.snmp_host }} vrf MGMT version 2c {{ mgmt.community }}
+snmp-server enable traps snmp link-down
+snmp-server enable traps snmp link-up
+!
+management api gnmi
+   transport grpc default
+      vrf MGMT
+   no shutdown
+!
+logging vrf MGMT host {{ mgmt.syslog_host }}
+logging vrf MGMT source-interface Management0
+!
+management api netconf
+   transport ssh default
+      vrf MGMT
+   no shutdown
+!
+{% for v in vlans | default([]) %}
+vlan {{ v.id }}
+   name {{ v.name }}
+!
+{% endfor %}
+{% if loopback is defined %}
+interface Loopback0
+   description ROUTER_ID
+   ip address {{ loopback.ipv4 }}
+   ipv6 address {{ loopback.ipv6 }}
+{% if loopback.ospf | default(false) %}
+   ip ospf area 0.0.0.0
+   ipv6 ospf 1 area 0.0.0.0
+{% endif %}
+{% if loopback.isis is defined %}
+   isis enable {{ isis.instance }}
+   isis passive
+{% endif %}
+!
+{% endif %}
+{% for i in interfaces %}
+interface {{ i.name }}
+   description {{ i.description }}
+{% if i.switchport is defined %}
+{% if i.switchport == 'trunk' %}
+   switchport mode trunk
+   switchport trunk allowed vlan {{ i.allowed_vlans }}
+{% else %}
+   switchport mode access
+   switchport access vlan {{ i.access_vlan }}
+{% endif %}
+{% else %}
+{% if i.vlan is defined %}
+   encapsulation dot1q vlan {{ i.vlan }}
+{% elif i.routed | default(false) %}
+   no switchport
+{% endif %}
+{% if i.ipv4 is defined %}
+   ip address {{ i.ipv4 }}
+{% endif %}
+{% if i.helper is defined %}
+   ip helper-address {{ i.helper }}
+{% endif %}
+{% if i.ipv6 is defined %}
+   ipv6 address {{ i.ipv6 }}
+{% endif %}
+{% if i.ipv6_dhcp_managed | default(false) %}
+   ipv6 nd managed-config-flag
+   ipv6 nd prefix {{ i.ipv6_nd_prefix }}
+{% endif %}
+{% if i.dhcp_server_ipv6 | default(false) %}
+   dhcp server ipv6
+{% endif %}
+{% if i.dhcp_server_ipv4 | default(false) %}
+   dhcp server ipv4
+{% endif %}
+{% if i.ospf is defined %}
+   ip ospf area 0.0.0.0
+   ip ospf network point-to-point
+   ipv6 ospf 1 area 0.0.0.0
+   ipv6 ospf network point-to-point
+{% endif %}
+{% if i.isis is defined %}
+   isis enable {{ isis.instance }}
+{% if i.isis == 'p2p' %}
+   isis network point-to-point
+{% else %}
+   isis passive
+{% endif %}
+{% endif %}
+{% endif %}
+!
+{% endfor %}
+{% if dhcp_pools is defined %}
+dhcp server
+{% for p in dhcp_pools %}
+   subnet {{ p.subnet }}
+      range {{ p.range }}
+{% if p.gateway is defined %}
+      default-gateway {{ p.gateway }}
+{% endif %}
+{% endfor %}
+!
+{% endif %}
+{% if isis is defined %}
+router isis {{ isis.instance }}
+   net {{ isis.net }}
+   is-type level-2
+{% for r in isis.redistribute | default([]) %}
+   redistribute {{ r }}
+{% endfor %}
+   address-family ipv4 unicast
+   address-family ipv6 unicast
+!
+{% endif %}
+{% if ospf is defined %}
+router ospf 1
+   router-id {{ ospf.router_id }}
+   passive-interface Loopback0
+{% if ospf.redistribute_bgp | default(false) %}
+   redistribute bgp route-map {{ ospf.redistribute_bgp_route_map }}
+{% endif %}
+{% if ospf.redistribute_isis_route_map is defined %}
+   redistribute isis level-2 route-map {{ ospf.redistribute_isis_route_map }}
+{% endif %}
+!
+ipv6 router ospf 1
+   router-id {{ ospf.router_id }}
+   passive-interface Loopback0
+{% if ospf.redistribute_bgp | default(false) %}
+   redistribute bgp
+{% endif %}
+{% if ospf.redistribute_isis_route_map is defined %}
+   redistribute isis level-2 route-map {{ ospf.redistribute_isis_route_map }}
+{% endif %}
+{% if ospf.ipv6_distance_external is defined %}
+   distance ospf external {{ ospf.ipv6_distance_external }}
+{% endif %}
+!
+{% endif %}
+{% if bgp is defined %}
+router bgp {{ bgp.asn }}
+{% for n in bgp.neighbors %}
+   neighbor {{ n.ip }} remote-as {{ n.remote_as }}
+{% endfor %}
+   !
+   address-family ipv4
+{% for n in bgp.neighbors if n.af == 'ipv4' %}
+      neighbor {{ n.ip }} activate
+{% if n.default_originate | default(false) %}
+      neighbor {{ n.ip }} default-originate always
+{% endif %}
+{% endfor %}
+{% for net in bgp.networks_ipv4 | default([]) %}
+      network {{ net }}
+{% endfor %}
+   !
+   address-family ipv6
+{% for n in bgp.neighbors if n.af == 'ipv6' %}
+      neighbor {{ n.ip }} activate
+{% if n.default_originate | default(false) %}
+      neighbor {{ n.ip }} default-originate always
+{% endif %}
+{% endfor %}
+{% for net in bgp.networks_ipv6 | default([]) %}
+      network {{ net }}
+{% endfor %}
+!
+{% endif %}

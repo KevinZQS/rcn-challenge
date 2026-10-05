@@ -1,0 +1,31 @@
+hostname: S1
+vendor: arista_eos
+role: access_switch
+mgmt:
+  snmp_host: 172.20.20.13
+  syslog_host: 172.20.20.13
+  community: public
+vlans:
+  - id: 10
+    name: VLAN10
+  - id: 20
+    name: VLAN20
+  - id: 30
+    name: VLAN30_IPV6_ONLY
+interfaces:
+  - name: Ethernet1
+    description: TRUNK_TO_R1
+    switchport: trunk
+    allowed_vlans: 10,20,30
+  - name: Ethernet2
+    description: TRUNK_TO_S2
+    switchport: trunk
+    allowed_vlans: 10,20,30
+  - name: Ethernet3
+    description: ACCESS_TO_H1_VLAN10
+    switchport: access
+    access_vlan: 10
+  - name: Ethernet4
+    description: ACCESS_TO_H2_VLAN20
+    switchport: access
+    access_vlan: 20

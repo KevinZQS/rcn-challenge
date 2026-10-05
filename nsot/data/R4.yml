@@ -1,0 +1,54 @@
+hostname: R4
+vendor: arista_eos
+role: core_router
+mgmt:
+  snmp_host: 172.20.20.13
+  syslog_host: 172.20.20.13
+  community: public
+prefix_lists:
+  - name: WEB_V4
+    seq: 10
+    action: permit
+    prefix: 10.30.0.0/24
+route_maps:
+  - name: BGP_TO_OSPF_V4
+    action: permit
+    seq: 10
+    match: ip address prefix-list WEB_V4
+loopback:
+  ipv4: 10.255.0.4/32
+  ipv6: 2001:db8:ffff::4/128
+  ospf: true
+interfaces:
+  - name: Ethernet1
+    description: L3_TO_S4
+    routed: true
+    ipv4: 10.20.0.18/30
+    ipv6: 2001:db8:2000:5::2/64
+    ospf: p2p
+  - name: Ethernet2
+    description: L3_TO_R5
+    routed: true
+    ipv4: 10.20.0.25/30
+    ipv6: 2001:db8:2000:7::1/64
+  - name: Ethernet3
+    description: L3_TO_R3
+    routed: true
+    ipv4: 10.20.0.30/30
+    ipv6: 2001:db8:2000:8::2/64
+    ospf: p2p
+ospf:
+  router_id: 10.255.0.4
+  redistribute_bgp: true
+  redistribute_bgp_route_map: BGP_TO_OSPF_V4
+bgp:
+  asn: 65000
+  neighbors:
+    - ip: 10.20.0.26
+      remote_as: 65100
+      af: ipv4
+      default_originate: true
+    - ip: 2001:db8:2000:7::2
+      remote_as: 65100
+      af: ipv6
+      default_originate: true

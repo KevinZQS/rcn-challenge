@@ -1,0 +1,16 @@
+clab-rcn-challenge/
+clab-*/
+.*.bak
+*.gz
+*.img
+*.qcow2
+__pycache__/
+*.pyc
+nsot/golden/
+.venv/
+venv/
+
+# generated at deploy time with current container IPs -- artifacts, not source
+configs/telegraf.conf
+configs/grafana/datasources/
+configs/grafana/dashboards/provider.yml

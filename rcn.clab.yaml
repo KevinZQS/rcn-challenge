@@ -1,0 +1,201 @@
+name: rcn-challenge
+
+topology:
+  nodes:
+
+    R1:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/R1.cfg
+      enforce-startup-config: true
+
+    R2:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/R2.cfg
+      enforce-startup-config: true
+
+    R3:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/R3.cfg
+      enforce-startup-config: true
+
+    R4:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/R4.cfg
+      enforce-startup-config: true
+
+    # CHANGED: was sonic-vm / vrnetlab/sonic_sonic-vs:202505.
+    # Now a normal cEOS node like every other router -- boots in ~90s with its
+    # config already applied, no post-boot script, reachable by eAPI/gNMI/NETCONF.
+    R5:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/R5.cfg
+      enforce-startup-config: true
+
+    S1:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/S1.cfg
+      enforce-startup-config: true
+
+    S2:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/S2.cfg
+      enforce-startup-config: true
+
+    S3:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/S3.cfg
+      enforce-startup-config: true
+
+    S4:
+      kind: arista_ceos
+      image: ceos:4.36.2F
+      startup-config: configs/S4.cfg
+      enforce-startup-config: true
+
+
+    # CHANGED (H1-H4): added iputils so 'ping -O -D' works.
+    # busybox ping has neither flag and prints nothing on a lost packet.
+    H1:
+      kind: linux
+      image: alpine:3.20
+      exec:
+        - ash -c 'apk add --no-cache iputils-ping || apk add --no-cache iputils'
+        - ash -c 'until udhcpc -i eth1 -q -n; do echo "H1 waiting for DHCP"; sleep 5; done'
+        - ip route replace 10.0.0.0/8 via 10.10.10.1 dev eth1
+        - ash -c 'until ip -6 route replace 2001:db8::/32 via 2001:db8:1000:10::1 dev eth1; do echo "H1 waiting for IPv6"; sleep 3; done'
+
+    H2:
+      kind: linux
+      image: alpine:3.20
+      exec:
+        - ash -c 'apk add --no-cache iputils-ping || apk add --no-cache iputils'
+        - ash -c 'until udhcpc -i eth1 -q -n; do echo "H2 waiting for DHCP"; sleep 5; done'
+        - ip route replace 10.0.0.0/8 via 10.10.20.1 dev eth1
+        - ash -c 'until ip -6 route replace 2001:db8::/32 via 2001:db8:1000:20::1 dev eth1; do echo "H2 waiting for IPv6"; sleep 3; done'
+
+    H3:
+      kind: linux
+      image: alpine:3.20
+      exec:
+        - ash -c 'apk add --no-cache iputils-ping || apk add --no-cache iputils'
+        - ash -c 'until udhcpc -i eth1 -q -n; do echo "H3 waiting for DHCP"; sleep 5; done'
+        - ip route replace 10.0.0.0/8 via 10.10.10.1 dev eth1
+        - ash -c 'until ip -6 route replace 2001:db8::/32 via 2001:db8:1000:10::1 dev eth1; do echo "H3 waiting for IPv6"; sleep 3; done'
+
+    H4:
+      kind: linux
+      image: alpine:3.20
+      exec:
+        - ash -c 'apk add --no-cache dhcpcd iputils-ping || apk add --no-cache dhcpcd iputils'
+        # dhcpcd -6 WITHOUT -1: -1 exits after one lease, leaving no client to
+        # renew it. VLAN30 is advertised with no-autoconfig, so DHCPv6 is the
+        # ONLY way H4 can hold a global address -- when the 2h lease expired it
+        # was left with link-local only and nothing restarted it. -b backgrounds
+        # immediately so containerlab's exec does not block.
+        - ash -c 'dhcpcd -b -6 eth1 || true'
+        - ash -c 'until ip -6 addr show dev eth1 | grep -q "inet6 2001:"; do echo "H4 waiting for a DHCPv6 address"; sleep 3; done'
+        - ash -c 'until ip -6 route replace 2001:db8::/32 via 2001:db8:1000:30::1 dev eth1; do echo "H4 waiting for IPv6"; sleep 3; done'
+
+
+    WebServer:
+      kind: linux
+      image: alpine:3.20
+      exec:
+        - apk add --no-cache busybox-extras
+        - ip addr add 10.30.0.10/24 dev eth1
+        - ip -6 addr add 2001:db8:3000:100::10/64 dev eth1
+        - ip route replace 10.0.0.0/8 via 10.30.0.1 dev eth1
+        - ip -6 route replace 2001:db8::/32 via 2001:db8:3000:100::1 dev eth1
+        - mkdir -p /www
+        - ash -c 'echo "<h1>Hello World - RCN Lab 1</h1>" > /www/index.html'
+        - httpd -p 80 -h /www
+
+
+    # CHANGED: pinned the management address.
+    # Every device config hardcodes 172.20.20.13 as the SNMP and syslog target.
+    # Without this pin containerlab hands NMAS whatever address is free, and
+    # those lines silently point at nothing after a redeploy.
+    NMAS:
+      kind: linux
+      image: alpine:3.20
+      mgmt-ipv4: 172.20.20.13
+      exec:
+        - apk add --no-cache openssh-client tcpdump nmap sshpass net-snmp-tools net-snmp curl jq rsyslog
+        - sh -c 'URL=$(curl -s https://api.github.com/repos/openconfig/gnmic/releases/latest | grep browser_download_url | grep Linux_x86_64.tar.gz | cut -d "\"" -f4) && curl -sL -o /tmp/gnmic.tar.gz "$URL" && cd /tmp && tar xzf gnmic.tar.gz && mv gnmic /usr/local/bin/ && chmod +x /usr/local/bin/gnmic'
+        - sh -c 'echo "module(load=\"imudp\")" > /etc/rsyslog.conf'
+        - sh -c 'echo "input(type=\"imudp\" port=\"514\")" >> /etc/rsyslog.conf'
+        - sh -c 'echo "*.* /var/log/network-devices.log" >> /etc/rsyslog.conf'
+        - rsyslogd
+        - sh -c 'echo "authCommunity log,execute,net public" > /etc/snmp/snmptrapd.conf'
+        - snmptrapd -Lf /var/log/snmp-traps.log -c /etc/snmp/snmptrapd.conf udp:0.0.0.0:162
+
+    InfluxDB:
+      kind: linux
+      image: influxdb:2.7
+      env:
+        DOCKER_INFLUXDB_INIT_MODE: setup
+        DOCKER_INFLUXDB_INIT_USERNAME: admin
+        DOCKER_INFLUXDB_INIT_PASSWORD: admin12345
+        DOCKER_INFLUXDB_INIT_ORG: rcn
+        DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+        DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: rcn-telemetry-token
+
+    Telegraf:
+      kind: linux
+      image: telegraf:1.30
+      binds:
+        - configs/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+
+    # CHANGED: restored GF_SECURITY_ALLOW_EMBEDDING.
+    # Without it the Grafana panel embedded in your Flask NSOT page renders blank.
+    Grafana:
+      kind: linux
+      image: grafana/grafana:11.1.0
+      ports:
+        - 3000:3000
+      binds:
+        - configs/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+        - configs/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      env:
+        GF_SECURITY_ADMIN_USER: admin
+        GF_SECURITY_ADMIN_PASSWORD: admin
+        GF_AUTH_ANONYMOUS_ENABLED: "true"
+        GF_SECURITY_ALLOW_EMBEDDING: "true"
+
+  links:
+
+    # Lower switching / access layer
+    - endpoints: ["R1:eth1", "S1:eth1"]
+    - endpoints: ["S1:eth2", "S2:eth1"]
+    - endpoints: ["S2:eth2", "R2:eth1"]
+
+    # Lower IS-IS routed network
+    - endpoints: ["R1:eth2", "S3:eth1"]
+    - endpoints: ["R2:eth2", "S4:eth1"]
+    - endpoints: ["S3:eth2", "S4:eth2"]
+
+    # OSPF core
+    - endpoints: ["S3:eth3", "R3:eth1"]
+    - endpoints: ["S4:eth3", "R4:eth1"]
+    - endpoints: ["R3:eth3", "R4:eth3"]
+
+    # BGP toward PE R5
+    - endpoints: ["R3:eth2", "R5:eth1"]
+    - endpoints: ["R4:eth2", "R5:eth2"]
+
+    # End hosts
+    - endpoints: ["S1:eth3", "H1:eth1"]
+    - endpoints: ["S1:eth4", "H2:eth1"]
+    - endpoints: ["S2:eth3", "H3:eth1"]
+    - endpoints: ["S2:eth4", "H4:eth1"]
+
+    # Internet / Web Server
+    - endpoints: ["R5:eth3", "WebServer:eth1"]

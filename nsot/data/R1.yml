@@ -1,0 +1,38 @@
+hostname: R1
+vendor: arista_eos
+role: access_router
+mgmt:
+  snmp_host: 172.20.20.13
+  syslog_host: 172.20.20.13
+  community: public
+loopback:
+  ipv4: 10.255.0.1/32
+  ipv6: 2001:db8:ffff::1/128
+  isis: passive
+interfaces:
+  - name: Ethernet1
+    description: TRUNK_TO_S1
+    routed: true
+  - name: Ethernet1.10
+    description: VLAN10_GATEWAY
+    vlan: 10
+    ipv4: 10.10.10.1/24
+    ipv6: 2001:db8:1000:10::1/64
+    helper: 10.20.0.5
+    isis: passive
+  - name: Ethernet1.20
+    description: VLAN20_GATEWAY
+    vlan: 20
+    ipv4: 10.10.20.1/24
+    ipv6: 2001:db8:1000:20::1/64
+    helper: 10.20.0.5
+    isis: passive
+  - name: Ethernet2
+    description: L3_TO_S3
+    routed: true
+    ipv4: 10.20.0.1/30
+    ipv6: 2001:db8:2000:1::1/64
+    isis: p2p
+isis:
+  instance: LOWER
+  net: 49.0001.0000.0000.0001.00

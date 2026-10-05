@@ -1,0 +1,60 @@
+hostname: S3
+vendor: arista_eos
+role: boundary_switch
+mgmt:
+  snmp_host: 172.20.20.13
+  syslog_host: 172.20.20.13
+  community: public
+route_maps:
+  - name: ISIS_TO_OSPF
+    action: deny
+    seq: 10
+    match: tag 110
+  - name: ISIS_TO_OSPF
+    action: permit
+    seq: 20
+    set: tag 115
+  - name: OSPF_TO_ISIS
+    action: deny
+    seq: 10
+    match: tag 115
+  - name: OSPF_TO_ISIS
+    action: permit
+    seq: 20
+    set: tag 110
+loopback:
+  ipv4: 10.255.0.13/32
+  ipv6: 2001:db8:ffff::13/128
+  ospf: true
+interfaces:
+  - name: Ethernet1
+    description: L3_TO_R1
+    routed: true
+    ipv4: 10.20.0.2/30
+    ipv6: 2001:db8:2000:1::2/64
+    isis: p2p
+  - name: Ethernet2
+    description: L3_TO_S4
+    routed: true
+    ipv4: 10.20.0.9/30
+    ipv6: 2001:db8:2000:3::1/64
+    ospf: p2p
+    isis: p2p
+  - name: Ethernet3
+    description: L3_TO_R3
+    routed: true
+    ipv4: 10.20.0.13/30
+    ipv6: 2001:db8:2000:4::1/64
+    ospf: p2p
+isis:
+  instance: LOWER
+  net: 49.0001.0000.0000.0013.00
+  redistribute:
+    - ospf match internal
+    - ospf match external route-map OSPF_TO_ISIS
+    - ospfv3 match internal
+    - ospfv3 match external route-map OSPF_TO_ISIS
+ospf:
+  router_id: 10.255.0.13
+  redistribute_isis_route_map: ISIS_TO_OSPF
+  ipv6_distance_external: 120
